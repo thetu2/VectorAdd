@@ -23,7 +23,7 @@
  */
 
 //select variable type: 1=real, 2=complex32, 3=half2, 4=2x half
-#define TYPE 4 
+#define TYPE 4
 
 #if TYPE==1
     #define VARTYPE float
@@ -105,6 +105,8 @@ __global__ void vectorAdd<__half2>(const __half2* A, const __half2* B, __half2* 
 int
 main(void)
 {
+	const int n_trials = 10000; // Number of montecarlo simulations to perform to get a better sense of the average stats. 
+
     // Error code to check return values for CUDA calls
     cudaError_t err = cudaSuccess;
 
@@ -194,51 +196,53 @@ main(void)
         exit(EXIT_FAILURE);
     }
 
-    // Copy the host input vectors A and B in host memory to the device input vectors in
-    // device memory
-    printf("Copy input data from the host memory to the CUDA device\n");
-    err = cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
+	// Setup CUDA grid.
+	int threadsPerBlock = 256;
+	int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
+	printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
 
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to copy vector A from host to device (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+	//For total elapsed time.
+	float total_time = 0;
 
-    err = cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
+	for (int i = 0; i < n_trials; i++){
+		// Copy the host input vectors A and B in host memory to the device input vectors in
+		// device memory
+		//printf("Copy input data from the host memory to the CUDA device\n");
+		err = cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
 
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to copy vector B from host to device (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
+		if (err != cudaSuccess)
+		{
+			fprintf(stderr, "Failed to copy vector A from host to device (error code %s)!\n", cudaGetErrorString(err));
+			exit(EXIT_FAILURE);
+		}
 
-    // Launch the Vector Add CUDA Kernel
-    int threadsPerBlock = 256;
-    int blocksPerGrid =(numElements + threadsPerBlock - 1) / threadsPerBlock;
-    printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
-    cudaEventRecord(start);
-    vectorAdd<VARTYPE><<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, numElements);
-    cudaEventRecord(stop);
-    err = cudaGetLastError();
+		err = cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
 
+		if (err != cudaSuccess)
+		{
+			fprintf(stderr, "Failed to copy vector B from host to device (error code %s)!\n", cudaGetErrorString(err));
+			exit(EXIT_FAILURE);
+		}
 
+		cudaEventRecord(start);
+		vectorAdd<VARTYPE><<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, numElements);
+		err = cudaGetLastError();
+		if (err != cudaSuccess)
+		{
+			fprintf(stderr, "Failed to launch vectorAdd kernel (error code %s)!\n", cudaGetErrorString(err));
+			exit(EXIT_FAILURE);
+		}
 
-    if (err != cudaSuccess)
-    {
-        fprintf(stderr, "Failed to launch vectorAdd kernel (error code %s)!\n", cudaGetErrorString(err));
-        exit(EXIT_FAILURE);
-    }
-
-    // Copy the device result vector in device memory to the host result vector
-    // in host memory.
-    printf("Copy output data from the CUDA device to the host memory\n");
-    err = cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-
-    cudaEventSynchronize(stop);
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
-    
+		// Copy the device result vector in device memory to the host result vector
+		// in host memory.
+		//printf("Copy output data from the CUDA device to the host memory\n");
+		err = cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
+		cudaEventRecord(stop); // Notice here your copy is only around the CUDA kernel execution. It is not around the memcopy.
+		cudaEventSynchronize(stop);
+		float milliseconds = 0;
+		cudaEventElapsedTime(&milliseconds, start, stop);
+		total_time = milliseconds + total_time;
+	}
 
     if (err != cudaSuccess)
     {
@@ -275,7 +279,9 @@ main(void)
     #endif
 
 
-    printf("Kernel time: %f ms\n", milliseconds);
+    printf("Total elapsed time including kernel execution and mem transfers from device to host: %f ms\n", total_time);
+	auto average_time = total_time / n_trials;
+	printf("Average time per trial: %f ms\n", average_time);
 
     // Free device global memory
     err = cudaFree(d_A);
