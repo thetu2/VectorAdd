@@ -215,7 +215,7 @@ main(void)
 			fprintf(stderr, "Failed to copy vector A from host to device (error code %s)!\n", cudaGetErrorString(err));
 			exit(EXIT_FAILURE);
 		}
-
+		cudaEventRecord(start);
 		err = cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
 
 		if (err != cudaSuccess)
@@ -223,8 +223,7 @@ main(void)
 			fprintf(stderr, "Failed to copy vector B from host to device (error code %s)!\n", cudaGetErrorString(err));
 			exit(EXIT_FAILURE);
 		}
-
-		cudaEventRecord(start);
+		
 		vectorAdd<VARTYPE><<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, numElements);
 		err = cudaGetLastError();
 		if (err != cudaSuccess)
